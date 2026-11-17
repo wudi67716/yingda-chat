@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>HGA客服 - 测试版安装</title></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 20px">
+    <h2>HGA客服</h2>
+    <p style="color:#666;font-size:14px">版本: 4.10.6 | 授权设备: 2 台<br>最后更新时间: 2026-11-17 23:56:55 (CST)</p>
+    <div id="wait-box" style="display:none;margin:24px auto;padding:16px;max-width:340px;background:#fff8e6;border:1px solid #ffd591;border-radius:10px;color:#d46b08;font-size:14px">
+      新设备 UDID 已提交云端重签队列，请等待 <b id="sec">75</b> 秒后页面自动刷新再点击安装...
+    </div>
+    <a id="install-btn" href="itms-services://?action=download-manifest&url=https://wudi67716.github.io/yingda-chat/app_hga/manifest.plist"
+       style="display:inline-block;margin-top:20px;padding:15px 32px;background:#34c759;color:#fff;border-radius:10px;text-decoration:none;font-size:17px;font-weight:600">
+       点击直接安装到 iPhone</a>
+    <p style="margin-top:20px;font-size:13px;color:#888">请使用 Safari 浏览器打开，点击安装后返回桌面查看进度</p>
+    <script>
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('enrolled') === '1') {
+        const box = document.getElementById('wait-box');
+        const btn = document.getElementById('install-btn');
+        box.style.display = 'block';
+        btn.style.opacity = '0.4';
+        btn.style.pointerEvents = 'none';
+        let left = 75;
+        const timer = setInterval(() => {
+            left--;
+            document.getElementById('sec').innerText = left;
+            if (left <= 0) {
+                clearInterval(timer);
+                window.location.href = window.location.pathname;
+            }
+        }, 1000);
+    }
+    </script></body></html>
