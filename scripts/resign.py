@@ -27,6 +27,26 @@ SIGNED_IPA = f"/tmp/{APP_KEY}_signed.ipa"
 ASC_API = "https://api.appstoreconnect.apple.com/v1"
 
 
+# Safari 校验：itms-services 安装只在 iOS 自带 Safari 有效，微信/QQ 等内置浏览器点了没反应
+SAFARI_JS = """
+var ua = navigator.userAgent;
+var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+var NOT_SAFARI = !(isIOS && /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|MicroMessenger|MQQBrowser|WeChat|WeiBo|BytedanceWebview|Instagram|TikTok/i.test(ua));
+if (NOT_SAFARI) {
+    var installBtn = document.getElementById('install-btn');
+    if (installBtn) {
+        installBtn.style.opacity = '0.35';
+        installBtn.style.pointerEvents = 'none';
+        var tip = document.createElement('p');
+        tip.style.cssText = 'margin-top:18px;color:#d4380d;font-size:14px';
+        tip.textContent = isIOS
+            ? '当前不是 Safari 打开，点安装不会生效：请点击右上角选择“在浏览器/Safari 中打开”，或在 iPhone 自带 Safari 中重新访问本页。'
+            : '需要用 iPhone/iPad 自带的 Safari 浏览器打开本页才能安装。';
+        installBtn.parentNode.insertBefore(tip, installBtn.nextSibling);
+    }
+}
+"""
+
 # 安装页等待脚本：轮询 Worker status 接口（20 秒后首次，每 30 秒一次，页面隐藏时暂停）
 WAIT_JS = """
 const params = new URLSearchParams(window.location.search);
@@ -45,7 +65,7 @@ if (params.get('enrolled') === '1') {
         done = true;
         clearInterval(clock); clearInterval(poll);
         msg.textContent = text;
-        if (unlock) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+        if (unlock && !NOT_SAFARI) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
     }
     function check() {
         if (done) return;
@@ -297,6 +317,7 @@ def main():
        点击直接安装到 iPhone</a>
     <p style="margin-top:20px;font-size:13px;color:#888">请使用 Safari 浏览器打开，点击安装后返回桌面查看进度</p>
     <script>
+    {SAFARI_JS}
     {wait_js}
     </script></body></html>"""
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:

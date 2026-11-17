@@ -67,7 +67,22 @@ export default {
       <title>测试设备绑定</title></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 20px">
       <h2>iOS 测试版设备授权</h2><p style="color:#555">请使用 iPhone 自带 <b>Safari</b> 浏览器打开</p>
       <a href="/enroll/${appKey}/udid.mobileconfig" style="display:inline-block;margin-top:20px;padding:14px 28px;background:#007aff;color:#fff;border-radius:10px;text-decoration:none;font-size:16px;font-weight:600">
-      一键获取 UDID 并重签</a></body></html>`;
+      一键获取 UDID 并重签</a>
+      <script>
+      var ua = navigator.userAgent;
+      var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (!isIOS || !/Safari/i.test(ua) || /CriOS|FxiOS|EdgiOS|MicroMessenger|MQQBrowser|WeChat|WeiBo|BytedanceWebview|Instagram|TikTok/i.test(ua)) {
+        var a = document.querySelector('a[href$="udid.mobileconfig"]');
+        if (a) {
+          a.style.opacity = '0.35';
+          a.style.pointerEvents = 'none';
+          var tip = document.createElement('p');
+          tip.style.cssText = 'margin-top:18px;color:#d4380d;font-size:14px';
+          tip.textContent = isIOS ? '当前不是 Safari 打开，无法下载描述文件：请在 iPhone 自带 Safari 中重新打开此链接。' : '需要用 iPhone/iPad 自带的 Safari 浏览器打开此链接。';
+          a.parentNode.appendChild(tip);
+        }
+      }
+      </script></body></html>`;
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
