@@ -6,7 +6,7 @@ on:
       app_key:
         description: "应用标识（对应 base Release 中的 <app_key>.ipa）"
         required: true
-        default: "app_a"
+        default: "app_hga"
       udid:
         description: "新测试机 UDID（留空则仅用当前已有设备重签）"
         required: false
@@ -56,7 +56,7 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_a' }}
+          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_hga' }}
           TARGET_UDID: ${{ github.event.inputs.udid || github.event.client_payload.udid || '' }}
           STRIP_EXTENSIONS: ${{ github.event.inputs.strip_extensions || github.event.client_payload.strip_extensions || 'false' }}
         run: python3 scripts/resign.py
@@ -64,7 +64,7 @@ jobs:
       - name: Publish signed IPA to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_a' }}
+          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_hga' }}
         run: |
           gh release view signed >/dev/null 2>&1 || gh release create signed --title "Signed IPAs" --notes "Auto resigned IPAs"
           gh release upload signed "/tmp/${APP_KEY}_signed.ipa" --clobber
