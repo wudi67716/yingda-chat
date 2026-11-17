@@ -4,7 +4,7 @@
  * 路由：
  *   GET  /enroll/{appKey}                    引导页（Safari 打开）
  *   GET  /enroll/{appKey}/udid.mobileconfig  Profile Service 描述文件
- *   POST /enroll/{appKey}/callback           苹果回调：提取 UDID -> repository_dispatch 触发重签 -> 303 跳安装页
+ *   POST /enroll/{appKey}/callback           苹果回调：提取 UDID -> repository_dispatch 触发重签 -> 301 跳安装页（iOS 实证只认 301）
  *   GET  /enroll/{appKey}/status?since=ts    重签进度轮询（安装页调用，10 秒共享缓存，开放 CORS）
  *   其余路径                                  302 回默认 app 引导页
  *
@@ -119,19 +119,27 @@ export default {
       });
     }
 
-    // 3. 接收苹果回调：提取 UDID -> 触发 GitHub Actions -> 303 跳 Pages 安装页倒计时
+    // 3. 接收苹果回调：提取 UDID -> 触发 GitHub Actions -> 301 跳 Pages 安装页
+    //    注意：Profile Service 回调跳转只能用 301，实测 302/303 iOS 会报"无效的描述文件"（社区多方验证）
     if (action === "callback" && request.method === "POST") {
       if (!env.GH_REPO || !env.GH_TOKEN) {
         console.error("[enroll] 缺少 GH_REPO/GH_TOKEN 环境变量");
         return errorHtml("服务未正确配置（缺少 GH_REPO / GH_TOKEN），请联系管理员", appKey, 500);
       }
-      // iOS 可能以 gzip/br/deflate 压缩发送回调体，Workers 不自动解压请求体
+      // iOS 可能以 gzip/br/deflate 发送回调体；Cloudflare 边缘也可能已解压但保留请求头。
+      // 策略：按头解压，解压失败再按纯文本解码，最终以 UDID 正则校验结果
       const enc = (request.headers.get("Content-Encoding") || "").toLowerCase();
+      const fmt = { gzip: "gzip", br: "br", deflate: "deflate" }[enc] || null;
+      const raw = await request.arrayBuffer();
       let body;
-      if (enc === "gzip" || enc === "br" || enc === "deflate") {
-        body = await new Response(await request.arrayBuffer(), { headers: { "Content-Encoding": enc } }).text();
+      if (fmt) {
+        try {
+          body = await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream(fmt))).text();
+        } catch (e) {
+          body = new TextDecoder().decode(raw);
+        }
       } else {
-        body = await request.text();
+        body = new TextDecoder().decode(raw);
       }
       const match = body.match(/<key>UDID<\/key>\s*<string>([^<]+)<\/string>/);
       const udid = match ? match[1].trim() : "";
@@ -148,7 +156,7 @@ export default {
       const cache = caches.default;
       const dedupKey = new Request(`https://udid-dedup.invalid/${appKey}/${udid}`);
       if (await cache.match(dedupKey)) {
-        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 303);
+        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 301);
       }
 
       let ghStatus = 0;
@@ -176,7 +184,7 @@ export default {
         ctx.waitUntil(cache.put(dedupKey, new Response(null, {
           headers: { "Cache-Control": `public, max-age=${DEDUP_TTL}` },
         })));
-        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 303);
+        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 301);
       }
       console.error(`[enroll:${appKey}] dispatch 失败: HTTP ${ghStatus} ${ghDetail}`);
       return errorHtml(`已读取设备 ${udid}，但触发重签失败（HTTP ${ghStatus}），请稍后返回重试`, appKey, 502);
