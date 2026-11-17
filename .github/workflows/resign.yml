@@ -43,14 +43,15 @@ jobs:
           make -j$(nproc) CXX="g++ -include cstdint"
           sudo install -m 755 /tmp/zsign/bin/zsign /usr/local/bin/zsign
           zsign -v || true
-          pip install PyJWT cryptography requests
+          # 2025-05 起 runner 镜像移除了 pip 豁免，裸 pip 会报 externally-managed-environment
+          pip install --break-system-packages PyJWT cryptography requests
 
       - name: Decode certs & download base IPA
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASC_P8_BASE64: ${{ secrets.ASC_P8_BASE64 }}
           P12_BASE64: ${{ secrets.P12_BASE64 }}
-          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_a' }}
+          APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_hga' }}
         run: |
           echo "$ASC_P8_BASE64" | base64 -d > /tmp/AuthKey.p8
           echo "$P12_BASE64" | base64 -d > /tmp/dist.p12
@@ -78,7 +79,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
+          # 先提交本地 docs 改动再 rebase，避免脏工作区导致并发时 cannot pull with rebase
           git add docs/
           git diff --cached --quiet || git commit -m "chore: update OTA manifest"
+          git pull --rebase --autostash origin main
           git push
