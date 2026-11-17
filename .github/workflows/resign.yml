@@ -65,6 +65,7 @@ jobs:
           APP_KEY: ${{ github.event.inputs.app_key || github.event.client_payload.app_key || 'app_hga' }}
           TARGET_UDID: ${{ github.event.inputs.udid || github.event.client_payload.udid || '' }}
           STRIP_EXTENSIONS: ${{ github.event.inputs.strip_extensions || github.event.client_payload.strip_extensions || 'false' }}
+          ENROLL_BASE: ${{ vars.ENROLL_BASE }}
         run: python3 scripts/resign.py
 
       - name: Publish signed IPA to GitHub Release

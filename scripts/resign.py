@@ -8,6 +8,8 @@ if not re.fullmatch(r"[A-Za-z0-9._-]+", APP_KEY):
     raise ValueError(f"APP_KEY 只允许字母、数字和 . _ -，当前值: {APP_KEY!r}")
 UDID = os.environ.get("TARGET_UDID", "").strip()
 STRIP_EXT = os.environ.get("STRIP_EXTENSIONS", "false").lower() == "true"
+# Worker 访问地址（可选，如 https://xxx.workers.dev）。配置后安装页轮询重签进度；未配置退回固定倒计时
+ENROLL_BASE = os.environ.get("ENROLL_BASE", "").strip().rstrip("/")
 
 ISSUER_ID = os.environ["ASC_ISSUER_ID"]
 KEY_ID = os.environ["ASC_KEY_ID"]
@@ -23,6 +25,76 @@ P12_PATH = "/tmp/dist.p12"
 BASE_IPA = f"/tmp/{APP_KEY}.ipa"
 SIGNED_IPA = f"/tmp/{APP_KEY}_signed.ipa"
 ASC_API = "https://api.appstoreconnect.apple.com/v1"
+
+
+# 安装页等待脚本：轮询 Worker status 接口（20 秒后首次，每 30 秒一次，页面隐藏时暂停）
+WAIT_JS = """
+const params = new URLSearchParams(window.location.search);
+if (params.get('enrolled') === '1') {
+    var box = document.getElementById('wait-box'),
+        btn = document.getElementById('install-btn'),
+        msg = document.getElementById('wait-msg'),
+        sec = document.getElementById('sec');
+    box.style.display = 'block';
+    btn.style.opacity = '0.4';
+    btn.style.pointerEvents = 'none';
+    var since = parseInt(params.get('t') || '0', 10) || Math.floor(Date.now() / 1000) - 60;
+    var waited = 0, done = false;
+    var clock = setInterval(function () { waited += 1; sec.textContent = String(waited); }, 1000);
+    function finish(text, unlock) {
+        done = true;
+        clearInterval(clock); clearInterval(poll);
+        msg.textContent = text;
+        if (unlock) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+    }
+    function check() {
+        if (done) return;
+        if (waited > 1200) { finish('排队比预期长，可以先关掉本页面，几分钟后重新打开再试。', true); return; }
+        fetch('__STATUS_URL__?since=' + since, { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (done) return;
+                if (d.state === 'success') {
+                    finish('重签完成，你的设备已入列！页面即将刷新，点安装即可拿到含你设备的包：）', false);
+                    setTimeout(function () { window.location.href = window.location.pathname; }, 1500);
+                } else if (d.state === 'failed') {
+                    finish('本次重签未成功，请稍等几分钟后重试；仍不行请联系管理员查看 Actions 运行日志。', true);
+                } else if (d.state === 'running') {
+                    msg.textContent = '服务器正在签名，会把你的设备写进新描述文件，请稍候...';
+                } else if (d.state === 'queued') {
+                    msg.textContent = '你已进入重签队列，正在等待前面的任务完成...';
+                } else {
+                    msg.textContent = '正在与服务器同步设备信息，请稍候...';
+                }
+            })
+            .catch(function () { /* 网络抖动忽略，下一轮自动重试 */ });
+    }
+    var poll = setInterval(function () { if (!document.hidden) check(); }, 30000);
+    setTimeout(check, 20000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+}
+"""
+
+# 未配置 ENROLL_BASE 时的退回脚本：约 75 秒后自动刷新一次
+WAIT_JS_LEGACY = """
+const params = new URLSearchParams(window.location.search);
+if (params.get('enrolled') === '1') {
+    var box = document.getElementById('wait-box'),
+        btn = document.getElementById('install-btn'),
+        msg = document.getElementById('wait-msg'),
+        sec = document.getElementById('sec');
+    box.style.display = 'block';
+    btn.style.opacity = '0.4';
+    btn.style.pointerEvents = 'none';
+    msg.textContent = '新设备 UDID 已提交，服务器正在重签（约 1-2 分钟），完成后页面自动刷新';
+    var waited = 0;
+    var timer = setInterval(function () {
+        waited += 1;
+        sec.textContent = String(waited);
+        if (waited >= 75) { clearInterval(timer); window.location.href = window.location.pathname; }
+    }, 1000);
+}
+"""
 
 
 def asc_headers() -> dict:
@@ -207,6 +279,7 @@ def main():
     with open(os.path.join(out_dir, "manifest.plist"), "wb") as f:
         plistlib.dump(manifest, f)
 
+    wait_js = (WAIT_JS if ENROLL_BASE else WAIT_JS_LEGACY).replace("__STATUS_URL__", f"{ENROLL_BASE}/enroll/{APP_KEY}/status")
     app_name_h = html.escape(str(app_name))
     version_h = html.escape(str(version))
     page_html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -215,30 +288,15 @@ def main():
     <h2>{app_name_h}</h2>
     <p style="color:#666;font-size:14px">版本: {version_h} | 授权设备: {len(devs)} 台<br>最后更新时间: {build_time} (CST)</p>
     <div id="wait-box" style="display:none;margin:24px auto;padding:16px;max-width:340px;background:#fff8e6;border:1px solid #ffd591;border-radius:10px;color:#d46b08;font-size:14px">
-      新设备 UDID 已提交云端重签队列，请等待 <b id="sec">75</b> 秒后页面自动刷新再点击安装...
+      <p id="wait-msg" style="margin:0 0 6px">新设备 UDID 已提交云端重签队列...</p>
+      <p style="margin:0">已等待 <b id="sec">0</b> 秒</p>
     </div>
     <a id="install-btn" href="itms-services://?action=download-manifest&url={manifest_url}"
        style="display:inline-block;margin-top:20px;padding:15px 32px;background:#34c759;color:#fff;border-radius:10px;text-decoration:none;font-size:17px;font-weight:600">
        点击直接安装到 iPhone</a>
     <p style="margin-top:20px;font-size:13px;color:#888">请使用 Safari 浏览器打开，点击安装后返回桌面查看进度</p>
     <script>
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('enrolled') === '1') {{
-        const box = document.getElementById('wait-box');
-        const btn = document.getElementById('install-btn');
-        box.style.display = 'block';
-        btn.style.opacity = '0.4';
-        btn.style.pointerEvents = 'none';
-        let left = 75;
-        const timer = setInterval(() => {{
-            left--;
-            document.getElementById('sec').innerText = left;
-            if (left <= 0) {{
-                clearInterval(timer);
-                window.location.href = window.location.pathname;
-            }}
-        }}, 1000);
-    }}
+    {wait_js}
     </script></body></html>"""
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(page_html)

@@ -5,6 +5,7 @@
  *   GET  /enroll/{appKey}                    引导页（Safari 打开）
  *   GET  /enroll/{appKey}/udid.mobileconfig  Profile Service 描述文件
  *   POST /enroll/{appKey}/callback           苹果回调：提取 UDID -> repository_dispatch 触发重签 -> 303 跳安装页
+ *   GET  /enroll/{appKey}/status?since=ts    重签进度轮询（安装页调用，10 秒共享缓存，开放 CORS）
  *   其余路径                                  302 回默认 app 引导页
  *
  * 环境变量：
@@ -117,7 +118,7 @@ export default {
       const cache = caches.default;
       const dedupKey = new Request(`https://udid-dedup.invalid/${appKey}/${udid}`);
       if (await cache.match(dedupKey)) {
-        return Response.redirect(`${installUrl}?enrolled=1`, 303);
+        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 303);
       }
 
       let ghStatus = 0;
@@ -145,10 +146,64 @@ export default {
         ctx.waitUntil(cache.put(dedupKey, new Response(null, {
           headers: { "Cache-Control": `public, max-age=${DEDUP_TTL}` },
         })));
-        return Response.redirect(`${installUrl}?enrolled=1`, 303);
+        return Response.redirect(`${installUrl}?enrolled=1&t=${Math.floor(Date.now() / 1000)}`, 303);
       }
       console.error(`[enroll:${appKey}] dispatch 失败: HTTP ${ghStatus} ${ghDetail}`);
       return errorHtml(`已读取设备 ${udid}，但触发重签失败（HTTP ${ghStatus}），请稍后返回重试`, appKey, 502);
+    }
+
+    // 4. 重签进度查询：安装页轮询调用（20 秒后每 30 秒一次）。
+    //    GH 查询按 app 做 10 秒共享缓存，多人同扫每 10 秒也只回源一次
+    if (action === "status" && (request.method === "GET" || request.method === "HEAD")) {
+      let runs = [];
+      if (env.GH_REPO && env.GH_TOKEN) {
+        const statusCache = caches.default;
+        const statusKey = new Request(`https://resign-status.invalid/${appKey}`);
+        const cached = await statusCache.match(statusKey);
+        if (!cached) {
+          try {
+            const gh = await fetch(`https://api.github.com/repos/${env.GH_REPO}/actions/workflows/resign.yml/runs?per_page=5`, {
+              headers: {
+                "Authorization": `Bearer ${env.GH_TOKEN}`,
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "CF-Worker-OTA",
+              },
+            });
+            if (gh.ok) {
+              runs = (await gh.json()).workflow_runs.map((r) => ({
+                t: Math.floor(Date.parse(r.created_at) / 1000),
+                s: r.status,
+                c: r.conclusion,
+              }));
+            }
+          } catch (e) {
+            console.warn(`[status:${appKey}] 查询 GitHub runs 失败: ${e.message}`);
+          }
+          ctx.waitUntil(statusCache.put(statusKey, new Response(JSON.stringify({ runs }), {
+            headers: { "Cache-Control": "public, max-age=10" },
+          })));
+        } else {
+          try {
+            runs = (await cached.json()).runs || [];
+          } catch (e) { runs = []; }
+        }
+      }
+      const since = Number(new URL(request.url).searchParams.get("since")) || 0;
+      // 优先找本次回调之后触发的 run；找不到就用最近一次（去重命中场景下通常就是那次）
+      const mine = runs.find((r) => r.t >= since) || runs[0];
+      let state = "starting";
+      if (mine) {
+        state = mine.s === "completed"
+          ? (mine.c === "success" ? "success" : "failed")
+          : (mine.s === "in_progress" ? "running" : "queued");
+      }
+      return new Response(JSON.stringify({ state, queue: runs.length }), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
     }
 
     return Response.redirect(`${url.origin}/enroll/${defaultApp}`, 302);
