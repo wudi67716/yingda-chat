@@ -115,8 +115,20 @@ def check_resp(resp: requests.Response, what: str) -> requests.Response:
     return resp
 
 
+def asc_call(what: str, method: str, url: str, headers: dict, retries: int = 3, **kwargs) -> requests.Response:
+    # 苹果 ASC 偶发 500/429（服务端抖动），退避重试；最终仍失败由 check_resp 打印错误体并抛出
+    for attempt in range(1, retries + 1):
+        resp = requests.request(method, url, headers=headers, timeout=20, **kwargs)
+        if resp.status_code in (429, 500, 502, 503) and attempt < retries:
+            wait = 15 * attempt
+            print(f"[ASC] {what} 返回 HTTP {resp.status_code}，{wait} 秒后重试（{attempt}/{retries - 1}）")
+            time.sleep(wait)
+            continue
+        return check_resp(resp, what)
+
+
 def build_profile(headers: dict, bundle_id: str, cert_res: str, prof_type: str, dev_rels: list, save_path: str):
-    r_bid = check_resp(requests.get(f"{ASC_API}/bundleIds", headers=headers, params={"filter[identifier]": bundle_id}, timeout=15), f"查询 Bundle ID {bundle_id}")
+    r_bid = asc_call(f"查询 Bundle ID {bundle_id}", "GET", f"{ASC_API}/bundleIds", headers, params={"filter[identifier]": bundle_id})
     exact = [b for b in r_bid.json().get("data", []) if b["attributes"]["identifier"] == bundle_id]
     if not exact:
         raise RuntimeError(f"苹果后台未找到精确匹配的 Bundle ID: {bundle_id}")
@@ -124,13 +136,12 @@ def build_profile(headers: dict, bundle_id: str, cert_res: str, prof_type: str, 
 
     prof_name = f"GH_Auto_{bundle_id}"
     # filter[name] 为模糊匹配，下面在客户端按名称精确比对后删除
-    r_old = check_resp(requests.get(f"{ASC_API}/profiles", headers=headers, params={"filter[name]": prof_name}, timeout=15), f"查询描述文件 {prof_name}")
+    r_old = asc_call(f"查询描述文件 {prof_name}", "GET", f"{ASC_API}/profiles", headers, params={"filter[name]": prof_name})
     for old in r_old.json().get("data", []):
         if old["attributes"]["name"] == prof_name:
-            check_resp(requests.delete(f"{ASC_API}/profiles/{old['id']}", headers=headers, timeout=15), f"删除旧描述文件 {prof_name}")
+            asc_call(f"删除旧描述文件 {prof_name}", "DELETE", f"{ASC_API}/profiles/{old['id']}", headers)
 
-    resp = check_resp(requests.post(
-        f"{ASC_API}/profiles", headers=headers,
+    resp = asc_call(f"创建描述文件 {prof_name}", "POST", f"{ASC_API}/profiles", headers,
         json={
             "data": {
                 "type": "profiles",
@@ -142,8 +153,7 @@ def build_profile(headers: dict, bundle_id: str, cert_res: str, prof_type: str, 
                 },
             }
         },
-        timeout=20,
-    ), f"创建描述文件 {prof_name}")
+    )
     with open(save_path, "wb") as f:
         f.write(base64.b64decode(resp.json()["data"]["attributes"]["profileContent"]))
 
@@ -172,29 +182,20 @@ def main():
 
     # 2. 注册或重新启用传入的测试机 UDID
     if UDID:
-        r = check_resp(requests.get(f"{ASC_API}/devices", headers=headers, params={"filter[udid]": UDID}, timeout=15), f"查询设备 {UDID}")
+        r = asc_call(f"查询设备 {UDID}", "GET", f"{ASC_API}/devices", headers, params={"filter[udid]": UDID})
         existing = r.json().get("data", [])
         if existing:
             if existing[0]["attributes"]["status"] != "ENABLED":
-                check_resp(requests.patch(
-                    f"{ASC_API}/devices/{existing[0]['id']}", headers=headers,
-                    json={"data": {"type": "devices", "id": existing[0]["id"], "attributes": {"status": "ENABLED"}}},
-                    timeout=15,
-                ), f"启用设备 {UDID}")
+                asc_call(f"启用设备 {UDID}", "PATCH", f"{ASC_API}/devices/{existing[0]['id']}", headers,
+                    json={"data": {"type": "devices", "id": existing[0]["id"], "attributes": {"status": "ENABLED"}}})
         else:
-            check_resp(requests.post(
-                f"{ASC_API}/devices", headers=headers,
-                json={"data": {"type": "devices", "attributes": {"name": f"Tester_{UDID[:8]}", "udid": UDID, "platform": "IOS"}}},
-                timeout=15,
-            ), f"注册设备 {UDID}")
+            asc_call(f"注册设备 {UDID}", "POST", f"{ASC_API}/devices", headers,
+                json={"data": {"type": "devices", "attributes": {"name": f"Tester_{UDID[:8]}", "udid": UDID, "platform": "IOS"}}})
         print(f"已同步测试设备 UDID: {UDID}")
 
     # 3. 匹配同账号证书与全量已启用设备
-    r_certs = check_resp(requests.get(
-        f"{ASC_API}/certificates", headers=headers,
-        params={"filter[certificateType]": "IOS_DISTRIBUTION,DISTRIBUTION,IOS_DEVELOPMENT,DEVELOPMENT"},
-        timeout=15,
-    ), "查询证书列表")
+    r_certs = asc_call("查询证书列表", "GET", f"{ASC_API}/certificates", headers,
+        params={"filter[certificateType]": "IOS_DISTRIBUTION,DISTRIBUTION,IOS_DEVELOPMENT,DEVELOPMENT"})
     certs = r_certs.json()["data"]
     matched_cert = next(
         (c for c in certs
@@ -211,7 +212,7 @@ def main():
     url = f"{ASC_API}/devices"
     params = {"filter[platform]": "IOS", "filter[status]": "ENABLED", "limit": 200}
     while url:
-        page = check_resp(requests.get(url, headers=headers, params=params, timeout=15), "分页查询已启用设备").json()
+        page = asc_call("分页查询已启用设备", "GET", url, headers, params=params).json()
         devs.extend(page.get("data", []))
         url = page.get("links", {}).get("next")
         params = None  # next 链接已带全部查询参数
