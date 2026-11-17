@@ -35,9 +35,19 @@ jobs:
 
       - name: Install zsign v1.1.3 & Python deps
         run: |
-          sudo apt-get update && sudo apt-get install -y g++ libssl-dev zlib1g-dev
+          sudo apt-get update && sudo apt-get install -y g++ cmake libssl-dev zlib1g-dev
           git clone --depth 1 --branch v1.1.3 https://github.com/zhlynn/zsign.git /tmp/zsign
-          g++ /tmp/zsign/*.cpp /tmp/zsign/common/*.cpp -lcrypto -lz -O3 -o /usr/local/bin/zsign
+          cd /tmp/zsign
+          if [ -f CMakeLists.txt ]; then
+            CXXFLAGS="-include cstdint -Wno-deprecated-declarations" cmake -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build -j$(nproc)
+            ZSIGN_BIN=$(find /tmp/zsign -maxdepth 3 -type f -name "zsign" -executable | head -n 1)
+            sudo install -m 755 "$ZSIGN_BIN" /usr/local/bin/zsign
+          else
+            g++ $(find . -name "*.cpp") -I. -I./common -I./src -I./src/common -include cstdint -Wno-deprecated-declarations -lcrypto -lz -O3 -o /tmp/zsign_bin
+            sudo install -m 755 /tmp/zsign_bin /usr/local/bin/zsign
+          fi
+          zsign -v
           pip install PyJWT cryptography requests
 
       - name: Decode certs & download base IPA
