@@ -3,7 +3,7 @@ import base64, datetime, glob, os, plistlib, re, shutil, subprocess, tempfile, t
 import jwt, requests
 from cryptography.hazmat.primitives.serialization import pkcs12
 
-APP_KEY = os.environ.get("APP_KEY", "app_a").strip() or "app_a"
+APP_KEY = os.environ.get("APP_KEY", "app_hga").strip() or "app_hga"
 UDID = os.environ.get("TARGET_UDID", "").strip()
 STRIP_EXT = os.environ.get("STRIP_EXTENSIONS", "false").lower() == "true"
 
