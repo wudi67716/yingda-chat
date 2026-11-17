@@ -15,8 +15,8 @@
  */
 
 const APP_KEY_RE = /^[A-Za-z0-9._-]{1,64}$/;
-// 兼容老设备（40 位 hex）与新设备（0xxxxxxxx-xxxxxxxxxxxxxxxx）两种 UDID 格式
-const UDID_RE = /^(?:[0-9a-fA-F]{40}|0[0-9a-fA-F]{8}-[0-9a-fA-F]{16})$/;
+// 2018-09 前的老设备为 40 位 hex；之后的新设备为 8 位 + 连字符 + 16 位 hex（如 00008020-008D4548007B4F26）
+const UDID_RE = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{8}-[0-9a-fA-F]{16})$/;
 const DEDUP_TTL = 600; // 同一 UDID 触发后的去重窗口（秒），防手抖/脚本刷重签队列
 
 // 由 appKey 派生稳定的 UUID，多 app 共存于一台设备时描述文件不会互相覆盖
@@ -68,6 +68,14 @@ export default {
       <h2>iOS 测试版设备授权</h2><p style="color:#555">请使用 iPhone 自带 <b>Safari</b> 浏览器打开</p>
       <a href="/enroll/${appKey}/udid.mobileconfig" style="display:inline-block;margin-top:20px;padding:14px 28px;background:#007aff;color:#fff;border-radius:10px;text-decoration:none;font-size:16px;font-weight:600">
       一键获取 UDID 并重签</a>
+      <div style="max-width:340px;margin:28px auto 0;text-align:left;font-size:14px;color:#444;line-height:2">
+      <p style="margin:0 0 4px;color:#888">获取后请按提示安装描述文件：</p>
+      1. 弹窗“正在下载描述文件”时点<b>允许</b>；<br>
+      2. 屏幕顶部出现“已描述文件 / Profile Downloaded”横幅，点开它；<br>
+      3. 点右上角<b>安装</b> → 输入锁屏密码 → 再点<b>安装</b> → 完成；<br>
+      4. 安装成功后会自动跳回本页，开始绑定设备。<br>
+      <span style="color:#999;font-size:12px">没看到横幅？去“设置 → 通用 → VPN 与设备管理”里安装；没弹出下载？确认为 Safari 打开，稍等再点一次，或先移除同名旧描述文件。</span>
+      </div>
       <script>
       var ua = navigator.userAgent;
       var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -117,7 +125,14 @@ export default {
         console.error("[enroll] 缺少 GH_REPO/GH_TOKEN 环境变量");
         return errorHtml("服务未正确配置（缺少 GH_REPO / GH_TOKEN），请联系管理员", appKey, 500);
       }
-      const body = await request.text();
+      // iOS 可能以 gzip/br/deflate 压缩发送回调体，Workers 不自动解压请求体
+      const enc = (request.headers.get("Content-Encoding") || "").toLowerCase();
+      let body;
+      if (enc === "gzip" || enc === "br" || enc === "deflate") {
+        body = await new Response(await request.arrayBuffer(), { headers: { "Content-Encoding": enc } }).text();
+      } else {
+        body = await request.text();
+      }
       const match = body.match(/<key>UDID<\/key>\s*<string>([^<]+)<\/string>/);
       const udid = match ? match[1].trim() : "";
       if (!UDID_RE.test(udid)) {
