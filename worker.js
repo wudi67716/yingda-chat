@@ -19,6 +19,12 @@ const APP_KEY_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const UDID_RE = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{8}-[0-9a-fA-F]{16})$/;
 const DEDUP_TTL = 600; // 同一 UDID 触发后的去重窗口（秒），防手抖/脚本刷重签队列
 
+// appKey -> 客服名映射：描述文件与引导页据此展示"是哪个客服的绑定"，新增 app 在这里加一行
+const APP_LABELS = { app_hga: "HGA 客服", app_mos: "MOS 客服" };
+function appLabel(appKey) {
+  return APP_LABELS[appKey] || "内部测试";
+}
+
 // 由 appKey 派生稳定的 UUID，多 app 共存于一台设备时描述文件不会互相覆盖
 function uuidForApp(appKey) {
   let h = 0x9e3779b9;
@@ -64,8 +70,8 @@ export default {
     // 1. 落地引导页
     if (!action) {
       const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>测试设备绑定</title></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 20px">
-      <h2>iOS 测试版设备授权</h2><p style="color:#555">请使用 iPhone 自带 <b>Safari</b> 浏览器打开</p>
+      <title>${appLabel(appKey)} - 测试设备绑定</title></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 20px">
+      <h2>${appLabel(appKey)} · iOS 测试版设备授权</h2><p style="color:#555">请使用 iPhone 自带 <b>Safari</b> 浏览器打开</p>
       <a href="/enroll/${appKey}/udid.mobileconfig" style="display:inline-block;margin-top:20px;padding:14px 28px;background:#007aff;color:#fff;border-radius:10px;text-decoration:none;font-size:16px;font-weight:600">
       一键获取 UDID 并重签</a>
       <div style="max-width:340px;margin:28px auto 0;text-align:left;font-size:14px;color:#444;line-height:2">
@@ -103,8 +109,8 @@ export default {
     <key>URL</key><string>${url.origin}/enroll/${appKey}/callback</string>
     <key>DeviceAttributes</key><array><string>UDID</string></array>
   </dict>
-  <key>PayloadOrganization</key><string>Internal Test</string>
-  <key>PayloadDisplayName</key><string>获取测试设备 UDID</string>
+  <key>PayloadOrganization</key><string>${appLabel(appKey)}</string>
+  <key>PayloadDisplayName</key><string>${appLabel(appKey)} · 获取测试设备 UDID</string>
   <key>PayloadVersion</key><integer>1</integer>
   <key>PayloadUUID</key><string>${uuidForApp(appKey)}</string>
   <key>PayloadIdentifier</key><string>com.internal.udid.${appKey}</string>

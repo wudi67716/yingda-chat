@@ -11,6 +11,9 @@ STRIP_EXT = os.environ.get("STRIP_EXTENSIONS", "false").lower() == "true"
 # Worker 访问地址（可选，如 https://xxx.workers.dev）。配置后安装页轮询重签进度；未配置退回固定倒计时
 ENROLL_BASE = os.environ.get("ENROLL_BASE", "").strip().rstrip("/")
 
+# appKey -> 客服名（与 worker.js 的 APP_LABELS 保持一致），安装页据此告知用户是哪个客服
+APP_LABELS = {"app_hga": "HGA 客服", "app_mos": "MOS 客服"}
+
 ISSUER_ID = os.environ["ASC_ISSUER_ID"]
 KEY_ID = os.environ["ASC_KEY_ID"]
 P12_PWD = os.environ["P12_PASSWORD"]
@@ -187,6 +190,26 @@ def build_profile(headers: dict, bundle_id: str, cert_res: str, prof_type: str, 
         f.write(base64.b64decode(resp.json()["data"]["attributes"]["profileContent"]))
 
 
+def get_base_ipa_date() -> str:
+    # 从 base Release 读取 {APP_KEY}.ipa 的最后上传时间，安装页展示"底包发布日期"；失败不阻断重签
+    try:
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "resign-script"}
+        tok = os.environ.get("GH_TOKEN", "")
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+        r = requests.get(f"https://api.github.com/repos/{REPO}/releases/tags/base", headers=headers, timeout=15)
+        if r.status_code != 200:
+            return ""
+        for asset in r.json().get("assets", []):
+            if asset["name"] == f"{APP_KEY}.ipa":
+                t = datetime.datetime.strptime(asset["updated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+                t = t.astimezone(datetime.timezone(datetime.timedelta(hours=8)))
+                return t.strftime("%Y-%m-%d %H:%M")
+    except Exception as e:
+        print(f"[warn] 读取底包发布日期失败: {e}")
+    return ""
+
+
 def main():
     if not os.path.exists(BASE_IPA):
         raise FileNotFoundError(f"未在 base Release 中找到底包: {APP_KEY}.ipa")
@@ -202,6 +225,7 @@ def main():
         raise RuntimeError(f"底包 {APP_KEY}.ipa 的 Info.plist 缺少 CFBundleIdentifier")
     version = info.get("CFBundleShortVersionString", "1.0.0")
     app_name = info.get("CFBundleDisplayName") or info.get("CFBundleName", APP_KEY)
+    cs_label = APP_LABELS.get(APP_KEY, "内部测试")
 
     with open(P12_PATH, "rb") as f:
         _, cert, _ = pkcs12.load_key_and_certificates(f.read(), P12_PWD.encode())
@@ -312,11 +336,13 @@ def main():
     wait_js = (WAIT_JS if ENROLL_BASE else WAIT_JS_LEGACY).replace("__STATUS_URL__", f"{ENROLL_BASE}/enroll/{APP_KEY}/status")
     app_name_h = html.escape(str(app_name))
     version_h = html.escape(str(version))
+    label_h = html.escape(cs_label)
+    base_date_h = html.escape(get_base_ipa_date() or "未知")
     page_html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>{app_name_h} - 测试版安装</title></head><body style="font-family:-apple-system,sans-serif;text-align:center;padding:48px 20px">
     <h2>{app_name_h}</h2>
-    <p style="color:#666;font-size:14px">版本: {version_h} | 授权设备: {len(devs)} 台<br>最后更新时间: {build_time} (CST)</p>
+    <p style="color:#666;font-size:14px"><b style="color:#007aff">{label_h}</b><br>版本: {version_h} | 授权设备: {len(devs)} 台<br>底包发布日期: {base_date_h} | 重签时间: {build_time} (CST)</p>
     <div id="wait-box" style="display:none;margin:24px auto;padding:16px;max-width:340px;background:#fff8e6;border:1px solid #ffd591;border-radius:10px;color:#d46b08;font-size:14px">
       <p id="wait-msg" style="margin:0 0 6px">新设备 UDID 已提交云端重签队列...</p>
       <p style="margin:0">已等待 <b id="sec">0</b> 秒</p>
