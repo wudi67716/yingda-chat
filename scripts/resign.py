@@ -32,8 +32,8 @@ SAFARI_JS = """
 var ua = navigator.userAgent;
 var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 var NOT_SAFARI = !(isIOS && /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|MicroMessenger|MQQBrowser|WeChat|WeiBo|BytedanceWebview|Instagram|TikTok/i.test(ua));
+var installBtn = document.getElementById('install-btn');
 if (NOT_SAFARI) {
-    var installBtn = document.getElementById('install-btn');
     if (installBtn) {
         installBtn.style.opacity = '0.35';
         installBtn.style.pointerEvents = 'none';
@@ -44,6 +44,15 @@ if (NOT_SAFARI) {
             : '需要用 iPhone/iPad 自带的 Safari 浏览器打开本页才能安装。';
         installBtn.parentNode.insertBefore(tip, installBtn.nextSibling);
     }
+} else if (installBtn) {
+    var goBox = document.getElementById('go-box');
+    installBtn.addEventListener('click', function () {
+        installBtn.textContent = '已开始安装（无反应可再点一次）';
+        if (goBox) {
+            goBox.style.display = 'block';
+            goBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    });
 }
 """
 
@@ -315,6 +324,10 @@ def main():
     <a id="install-btn" href="itms-services://?action=download-manifest&url={manifest_url}"
        style="display:inline-block;margin-top:20px;padding:15px 32px;background:#34c759;color:#fff;border-radius:10px;text-decoration:none;font-size:17px;font-weight:600">
        点击直接安装到 iPhone</a>
+    <div id="go-box" style="display:none;margin-top:16px;padding:16px;max-width:340px;background:#f0f9eb;border:1px solid #b7eb8f;border-radius:10px;color:#389e0d;font-size:14px;text-align:left;line-height:1.9">
+      ✅ 已唤起安装：请回到 iPhone 桌面，「{app_name_h}」图标会自动开始下载（保持网络连接）。<br>
+      若 10 秒后桌面没有动静：确认是在 iPhone 自带 <b>Safari</b> 里点的（微信/QQ 内无效），再点一次按钮即可。
+    </div>
     <p style="margin-top:20px;font-size:13px;color:#888">请使用 Safari 浏览器打开，点击安装后返回桌面查看进度</p>
     <script>
     {SAFARI_JS}
