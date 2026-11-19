@@ -352,9 +352,18 @@ def main():
        点击直接安装到 iPhone</a>
     <div id="go-box" style="display:none;margin-top:16px;padding:16px;max-width:340px;background:#f0f9eb;border:1px solid #b7eb8f;border-radius:10px;color:#389e0d;font-size:14px;text-align:left;line-height:1.9">
       ✅ 已唤起安装：请回到 iPhone 桌面，「{app_name_h}」图标会自动开始下载（保持网络连接）。<br>
-      若 10 秒后桌面没有动静：确认是在 iPhone 自带 <b>Safari</b> 里点的（微信/QQ 内无效），再点一次按钮即可。
+      若 10 秒后桌面没有动静：确认是在 iPhone 自带 <b>Safari</b> 里点的（微信/QQ 内无效），再点一次按钮即可。<br>
+      安装完成后若图标发灰、打不开：请按本页下方步骤开启“开发者模式”。
     </div>
     <p style="margin-top:20px;font-size:13px;color:#888">请使用 Safari 浏览器打开，点击安装后返回桌面查看进度</p>
+    <div style="margin:22px auto 0;padding:14px 16px;max-width:340px;background:#f7f8fa;border:1px solid #e3e5e8;border-radius:10px;text-align:left;font-size:13px;color:#555;line-height:1.9">
+      <b style="color:#333">📱 安装后打不开？请开启“开发者模式”（iOS 16 及以上需要）</b><br>
+      1. 先等 App 下载完成，在桌面点开一次（图标发灰、一点就自动退出，就是这个原因）；<br>
+      2. 打开 iPhone「设置 → 隐私与安全性」，滑到最底部点「开发者模式」（未安装过测试 App 时不显示该选项）；<br>
+      3. 打开开关，按提示点「重启」，输入锁屏密码；<br>
+      4. 重启后屏幕会再弹确认框，点「打开」并再输一次密码，即可正常使用。<br>
+      <span style="color:#999">iOS 15 及以下无需此操作；该模式仅测试期间开启即可，不用时可关闭。</span>
+    </div>
     <script>
     {SAFARI_JS}
     {wait_js}
